@@ -2,6 +2,8 @@
 
 Run the official `tailscale/tailscale` Docker image in **userspace networking mode** and expose a local **SOCKS5/HTTP proxy** for restricted environments that cannot create `/dev/net/tun`.
 
+> **Upstream / projeto principal:** this repository is a helper installer/CLI around the official Tailscale project. Use [`tailscale/tailscale`](https://github.com/tailscale/tailscale) as the primary reference for Tailscale behavior, Docker image features, and userspace networking support.
+
 ```text
 Restricted app / Claude Cowork / CI
         │
