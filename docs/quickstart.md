@@ -6,18 +6,19 @@
 curl -fsSL https://raw.githubusercontent.com/cadugevaerd/tailscale-userspace-proxy/main/install.py | python3
 ```
 
-The installer checks:
+The installer checks each prerequisite and asks before installing or starting anything missing:
 
 ```text
 Python >= 3.10
 uv
-Docker
-Docker Compose
+Docker CLI
+Docker daemon running
+Docker Compose v2
 port 1055
 Tailscale auth key
 ```
 
-If `uv` is missing, it installs `uv` first.
+If you answer `n` to any prerequisite prompt, installation is cancelled.
 
 ## 2. Start
 

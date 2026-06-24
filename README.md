@@ -45,6 +45,8 @@ Then start:
 tailscale-proxy up
 ```
 
+During setup, every missing prerequisite gets its own prompt. If the user answers `n`, installation is cancelled.
+
 ## UV install
 
 ```bash

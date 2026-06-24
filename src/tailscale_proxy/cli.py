@@ -152,6 +152,138 @@ def prompt_value(label: str, default: str | None = None, secret: bool = False) -
     return value
 
 
+def is_yes(value: str) -> bool:
+    return value.strip().lower() in {"y", "yes", "s", "sim"}
+
+
+def confirm_or_cancel(args: argparse.Namespace, question: str, cancel_message: str) -> None:
+    """Ask permission before installing/starting a missing prerequisite.
+
+    The install flow must fail closed: every missing prerequisite gets its own
+    explicit prompt, and any negative answer cancels the installation.
+    """
+    if getattr(args, "yes", False):
+        return
+    if getattr(args, "non_interactive", False):
+        raise CliError(f"{cancel_message} Rerun with --yes to approve prerequisite setup non-interactively.")
+    answer = input(f"{question} [y/N]: ")
+    if not is_yes(answer):
+        raise CliError(cancel_message)
+
+
+def refresh_user_bin_path() -> None:
+    extra = [str(Path.home() / ".local" / "bin"), str(Path.home() / ".cargo" / "bin")]
+    os.environ["PATH"] = os.pathsep.join(extra + [os.environ.get("PATH", "")])
+
+
+def run_shell(command: str) -> None:
+    info(f"$ {command}")
+    rc = subprocess.run(command, shell=True).returncode
+    if rc != 0:
+        raise CliError(f"Command failed with exit code {rc}: {command}")
+
+
+def install_uv(args: argparse.Namespace) -> None:
+    system = platform.system().lower()
+    if system in {"linux", "darwin"}:
+        if not command_exists("curl"):
+            raise CliError("curl is required to install uv automatically. Install curl first and rerun tailscale-proxy install.")
+        run_shell("curl -LsSf https://astral.sh/uv/install.sh | sh")
+        refresh_user_bin_path()
+        return
+    if system == "windows":
+        run_shell('powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"')
+        refresh_user_bin_path()
+        return
+    raise CliError(f"Automatic uv installation is not supported on {platform.system()}.")
+
+
+def install_docker_engine(args: argparse.Namespace) -> None:
+    system = platform.system().lower()
+    if system != "linux":
+        raise CliError("Automatic Docker install is only supported on Linux. Install Docker Desktop manually and rerun tailscale-proxy install.")
+    if not command_exists("curl"):
+        raise CliError("curl is required for automatic Docker installation. Install curl first and rerun tailscale-proxy install.")
+    cmd = "curl -fsSL https://get.docker.com | sh"
+    if os.geteuid() != 0 and command_exists("sudo"):
+        cmd = "curl -fsSL https://get.docker.com | sudo sh"
+    run_shell(cmd)
+
+
+def start_docker_daemon(args: argparse.Namespace) -> None:
+    system = platform.system().lower()
+    if system == "linux" and command_exists("systemctl"):
+        cmd = "systemctl start docker"
+        if os.geteuid() != 0 and command_exists("sudo"):
+            cmd = "sudo systemctl start docker"
+        run_shell(cmd)
+        return
+    if system == "darwin" and command_exists("open"):
+        run_shell("open -a Docker")
+        warn("Docker Desktop may take a minute to finish starting. Rerun tailscale-proxy install if the daemon is still not ready.")
+        return
+    raise CliError("Could not start Docker automatically. Start Docker manually and rerun tailscale-proxy install.")
+
+
+def install_docker_compose(args: argparse.Namespace) -> None:
+    system = platform.system().lower()
+    if system == "linux" and command_exists("apt-get"):
+        cmd = "apt-get update && apt-get install -y docker-compose-plugin"
+        if os.geteuid() != 0 and command_exists("sudo"):
+            cmd = "sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+        run_shell(cmd)
+        return
+    if system == "darwin" and command_exists("brew"):
+        run_shell("brew install docker-compose")
+        return
+    raise CliError("Automatic Docker Compose installation is not supported on this system. Install Docker Compose v2 manually and rerun tailscale-proxy install.")
+
+
+def ensure_uv_ready(args: argparse.Namespace) -> None:
+    if command_exists("uv"):
+        proc = run(["uv", "--version"], check=False)
+        ok((proc.stdout or "uv found").strip())
+        return
+    warn("uv not found.")
+    confirm_or_cancel(args, "Install uv now?", "uv installation cancelled.")
+    install_uv(args)
+    if not command_exists("uv"):
+        raise CliError("uv installation finished but uv is still not on PATH. Open a new shell and rerun tailscale-proxy install.")
+    proc = run(["uv", "--version"], check=False)
+    ok((proc.stdout or "uv installed").strip())
+
+
+def ensure_docker_ready(args: argparse.Namespace) -> None:
+    if not command_exists("docker"):
+        warn("docker command not found.")
+        confirm_or_cancel(args, "Install Docker now?", "Docker installation cancelled.")
+        install_docker_engine(args)
+    if not command_exists("docker"):
+        raise CliError("Docker installation finished but docker is still not on PATH. Open a new shell and rerun tailscale-proxy install.")
+
+    docker_ok, docker_message = check_docker_daemon()
+    if not docker_ok:
+        warn(docker_message)
+        confirm_or_cancel(args, "Docker is installed but not running. Try to start Docker now?", "Docker startup cancelled.")
+        start_docker_daemon(args)
+        docker_ok, docker_message = check_docker_daemon()
+    if not docker_ok:
+        raise CliError("Docker is required and not ready. Start Docker Desktop/daemon and retry.")
+    ok(docker_message)
+
+
+def ensure_docker_compose_ready(args: argparse.Namespace) -> None:
+    if docker_compose_cmd() is not None:
+        ok("Docker Compose found")
+        return
+    warn("Docker Compose v2 was not found.")
+    confirm_or_cancel(args, "Install Docker Compose now?", "Docker Compose installation cancelled.")
+    install_docker_compose(args)
+    if docker_compose_cmd() is None:
+        raise CliError("Docker Compose installation finished but compose is still unavailable. Install Docker Compose v2 manually and retry.")
+    ok("Docker Compose found")
+
+
 def ensure_port_available(bind_addr: str, port: int) -> bool:
     host = bind_addr if bind_addr not in ("0.0.0.0", "::") else ""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -174,28 +306,6 @@ def check_docker_daemon() -> tuple[bool, str]:
     return True, "Docker daemon reachable"
 
 
-def maybe_install_docker(args: argparse.Namespace) -> None:
-    if not getattr(args, "install_docker", False):
-        return
-    system = platform.system().lower()
-    if system not in {"linux"}:
-        raise CliError("Automatic Docker install is only supported on Linux. Install Docker Desktop manually on macOS/Windows.")
-    if not command_exists("curl"):
-        raise CliError("curl is required for automatic Docker installation.")
-    if not getattr(args, "yes", False):
-        warn("This will run Docker's official convenience installer: https://get.docker.com")
-        answer = input("Continue? [y/N]: ").strip().lower()
-        if answer not in {"y", "yes"}:
-            raise CliError("Docker installation cancelled.")
-    cmd = "curl -fsSL https://get.docker.com | sh"
-    if os.geteuid() != 0 and command_exists("sudo"):
-        cmd = f"curl -fsSL https://get.docker.com | sudo sh"
-    info("🐳 Installing Docker Engine...")
-    rc = subprocess.run(cmd, shell=True).returncode
-    if rc != 0:
-        raise CliError("Docker installer failed. Install Docker manually and run tailscale-proxy install again.")
-
-
 def cmd_install(args: argparse.Namespace) -> int:
     home = app_home(args)
     info("🔍 Checking prerequisites...")
@@ -203,24 +313,9 @@ def cmd_install(args: argparse.Namespace) -> int:
         raise CliError("Python >= 3.10 is required.")
     ok(f"Python {platform.python_version()}")
 
-    if command_exists("uv"):
-        proc = run(["uv", "--version"], check=False)
-        ok((proc.stdout or "uv found").strip())
-    else:
-        warn("uv not found. The bootstrap installer can install uv automatically; this CLI can still run if already installed.")
-
-    docker_ok, docker_message = check_docker_daemon()
-    if not docker_ok:
-        warn(docker_message)
-        maybe_install_docker(args)
-        docker_ok, docker_message = check_docker_daemon()
-    if not docker_ok:
-        raise CliError("Docker is required and not ready. Start Docker Desktop/daemon and retry.")
-    ok(docker_message)
-
-    if docker_compose_cmd() is None:
-        raise CliError("Docker Compose v2 is required.")
-    ok("Docker Compose found")
+    ensure_uv_ready(args)
+    ensure_docker_ready(args)
+    ensure_docker_compose_ready(args)
 
     ensure_project_files(home, force=args.force)
     current = parse_env_file(env_path(home))
@@ -428,8 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bind", default=None, help="Host bind address. Default: 127.0.0.1")
     p.add_argument("--accept-dns", choices=["true", "false"], default=None, help="Accept Tailscale DNS/MagicDNS.")
     p.add_argument("--extra-args", default=None, help="Extra args passed to tailscale up via TS_EXTRA_ARGS.")
-    p.add_argument("--install-docker", action="store_true", help="Attempt Docker install on Linux if missing.")
-    p.add_argument("--yes", action="store_true", help="Assume yes for destructive/installer prompts.")
+    p.add_argument("--yes", action="store_true", help="Automatically answer yes to prerequisite install/start prompts.")
     p.add_argument("--force", action="store_true", help="Overwrite generated compose/config helper files.")
     p.add_argument("--non-interactive", action="store_true", help="Do not prompt; require flags/env/defaults.")
     p.set_defaults(func=cmd_install)
@@ -443,7 +537,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bind", default=None, help=argparse.SUPPRESS)
     p.add_argument("--accept-dns", choices=["true", "false"], default=None, help=argparse.SUPPRESS)
     p.add_argument("--extra-args", default=None, help=argparse.SUPPRESS)
-    p.add_argument("--install-docker", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--non-interactive", action="store_true", help=argparse.SUPPRESS)

@@ -25,11 +25,22 @@ def run(cmd: list[str] | str, shell: bool = False, check: bool = True, env: dict
     return proc.returncode
 
 
+def is_yes(value: str) -> bool:
+    return value.strip().lower() in {"y", "yes", "s", "sim"}
+
+
+def confirm_or_cancel(question: str, cancel_message: str) -> None:
+    answer = input(f"{question} [y/N]: ")
+    if not is_yes(answer):
+        raise SystemExit(cancel_message)
+
+
 def install_uv() -> None:
     if shutil.which("uv"):
         return
     system = platform.system().lower()
-    print("🔧 uv not found. Installing uv...")
+    print("🔧 uv not found.")
+    confirm_or_cancel("Install uv now?", "uv installation cancelled.")
     if system in {"linux", "darwin"}:
         if not shutil.which("curl"):
             raise SystemExit("curl is required to install uv automatically.")

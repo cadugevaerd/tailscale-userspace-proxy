@@ -20,5 +20,7 @@ jobs:
         run: uv run tailscale-proxy --help
       - name: Compile Python
         run: uv run python -m compileall src
+      - name: Unit tests
+        run: uv run python -m unittest discover -s tests -v
       - name: Validate generated compose
         run: uv run tailscale-proxy validate --home "$RUNNER_TEMP/tailscale-proxy"
