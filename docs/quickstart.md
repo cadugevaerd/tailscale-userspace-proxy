@@ -20,10 +20,25 @@ Tailscale auth key
 
 If you answer `n` to any prerequisite prompt, installation is cancelled.
 
-The installer then asks whether to configure Docker MCP for Claude Code. If accepted, it runs:
+The installer then asks how to handle Docker MCP for Claude Code:
+
+```text
+i = install automatically on this machine
+c = copy/print manual command for this machine
+w = copy/print command for Windows Claude Code + Docker in WSL
+n = skip
+```
+
+Same-machine command:
 
 ```bash
 claude mcp add docker-mcp -s user -- uvx docker-mcp
+```
+
+Windows Claude Code with Docker running in default WSL distro:
+
+```powershell
+claude mcp add docker-mcp -s user -- wsl.exe -- uvx docker-mcp
 ```
 
 Answering `n` to this optional MCP prompt skips only the Claude Code integration and continues installation.

@@ -49,13 +49,29 @@ tailscale-proxy up
 
 During setup, every missing prerequisite gets its own prompt. If the user answers `n`, installation is cancelled.
 
-The installer also offers an optional Claude Code integration: if accepted, it registers the Docker MCP server as `docker-mcp` using:
+The installer also offers an optional Claude Code Docker MCP setup. The prompt has three useful choices:
+
+```text
+i = install automatically on this machine
+c = copy/print manual command for this machine
+w = copy/print command for Windows Claude Code + Docker in WSL
+```
+
+Same machine command:
 
 ```bash
 claude mcp add docker-mcp -s user -- uvx docker-mcp
 ```
 
-This MCP option is currently Claude Code only. It is skipped by default in `--non-interactive` or `--yes` runs; use `--install-claude-code-docker-mcp` to force it.
+Windows Claude Code with Docker/uvx inside default WSL distro:
+
+```powershell
+claude mcp add docker-mcp -s user -- wsl.exe -- uvx docker-mcp
+```
+
+If Docker is inside a non-default WSL distro, use `wsl.exe -d <Distro>` before `-- uvx docker-mcp`.
+
+This MCP option is currently Claude Code only. It is skipped by default in `--non-interactive` or `--yes` runs; use `--install-claude-code-docker-mcp`, `--copy-claude-code-docker-mcp-command`, or `--copy-claude-code-docker-mcp-wsl-command` to force a specific action.
 
 ## UV install
 

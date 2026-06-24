@@ -18,6 +18,8 @@ def args(**overrides: object) -> argparse.Namespace:
         "yes": False,
         "non_interactive": False,
         "install_claude_code_docker_mcp": False,
+        "copy_claude_code_docker_mcp_command": False,
+        "copy_claude_code_docker_mcp_wsl_command": False,
         "skip_claude_code_docker_mcp": False,
     }
     values.update(overrides)
@@ -100,6 +102,31 @@ class PrerequisitePromptTests(unittest.TestCase):
                 cli.maybe_install_claude_code_docker_mcp(args(non_interactive=True))
         input_mock.assert_not_called()
         install_mock.assert_not_called()
+
+    def test_claude_code_docker_mcp_copy_answer_prints_local_command(self) -> None:
+        with patch("builtins.input", return_value="c") as input_mock:
+            with patch.object(cli, "copy_to_clipboard", return_value=True) as copy_mock:
+                with patch.object(cli, "install_claude_code_docker_mcp") as install_mock:
+                    cli.maybe_install_claude_code_docker_mcp(args())
+        input_mock.assert_called_once()
+        install_mock.assert_not_called()
+        copy_mock.assert_called_once_with("claude mcp add docker-mcp -s user -- uvx docker-mcp")
+
+    def test_claude_code_docker_mcp_wsl_answer_prints_wsl_command(self) -> None:
+        with patch("builtins.input", return_value="w") as input_mock:
+            with patch.object(cli, "copy_to_clipboard", return_value=False) as copy_mock:
+                with patch.object(cli, "install_claude_code_docker_mcp") as install_mock:
+                    cli.maybe_install_claude_code_docker_mcp(args())
+        input_mock.assert_called_once()
+        install_mock.assert_not_called()
+        copy_mock.assert_called_once_with("claude mcp add docker-mcp -s user -- wsl.exe -- uvx docker-mcp")
+
+    def test_claude_code_docker_mcp_copy_flag_skips_prompt(self) -> None:
+        with patch("builtins.input") as input_mock:
+            with patch.object(cli, "copy_to_clipboard", return_value=True) as copy_mock:
+                cli.maybe_install_claude_code_docker_mcp(args(copy_claude_code_docker_mcp_command=True))
+        input_mock.assert_not_called()
+        copy_mock.assert_called_once_with("claude mcp add docker-mcp -s user -- uvx docker-mcp")
 
     def test_claude_code_docker_mcp_explicit_flag_runs_claude_command(self) -> None:
         def command_exists(name: str) -> bool:

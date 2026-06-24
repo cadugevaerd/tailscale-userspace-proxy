@@ -16,6 +16,23 @@ APP_NAME = "tailscale-userspace-proxy"
 DEFAULT_HOME = Path(os.environ.get("TAILSCALE_PROXY_HOME", Path.home() / f".{APP_NAME}")).expanduser()
 REPO_URL = "https://github.com/cadugevaerd/tailscale-userspace-proxy"
 RAW_MAIN = "https://raw.githubusercontent.com/cadugevaerd/tailscale-userspace-proxy/main"
+MCP_LOCAL_COMMAND = ["claude", "mcp", "add", "docker-mcp", "-s", "user", "--", "uvx", "docker-mcp"]
+MCP_WSL_COMMAND = ["claude", "mcp", "add", "docker-mcp", "-s", "user", "--", "wsl.exe", "--", "uvx", "docker-mcp"]
+MCP_WSL_DISTRO_EXAMPLE_COMMAND = [
+    "claude",
+    "mcp",
+    "add",
+    "docker-mcp",
+    "-s",
+    "user",
+    "--",
+    "wsl.exe",
+    "-d",
+    "Ubuntu",
+    "--",
+    "uvx",
+    "docker-mcp",
+]
 
 
 class CliError(RuntimeError):
@@ -68,6 +85,35 @@ def which(name: str) -> str | None:
 
 def command_exists(name: str) -> bool:
     return which(name) is not None
+
+
+def command_to_text(cmd: list[str]) -> str:
+    return " ".join(cmd)
+
+
+def clipboard_command() -> list[str] | None:
+    system = platform.system().lower()
+    if system == "darwin" and command_exists("pbcopy"):
+        return ["pbcopy"]
+    if system == "windows" and command_exists("clip"):
+        return ["clip"]
+    if command_exists("clip.exe"):
+        return ["clip.exe"]
+    if command_exists("wl-copy"):
+        return ["wl-copy"]
+    if command_exists("xclip"):
+        return ["xclip", "-selection", "clipboard"]
+    if command_exists("xsel"):
+        return ["xsel", "--clipboard", "--input"]
+    return None
+
+
+def copy_to_clipboard(text: str) -> bool:
+    cmd = clipboard_command()
+    if cmd is None:
+        return False
+    proc = subprocess.run(cmd, input=text, text=True, capture_output=True, check=False)
+    return proc.returncode == 0
 
 
 def docker_compose_cmd() -> list[str] | None:
@@ -284,38 +330,78 @@ def ensure_docker_compose_ready(args: argparse.Namespace) -> None:
     ok("Docker Compose found")
 
 
-def wants_claude_code_docker_mcp(args: argparse.Namespace) -> bool:
-    """Return whether to configure Docker MCP for Claude Code.
+def choose_claude_code_docker_mcp_action(args: argparse.Namespace) -> str:
+    """Return the optional Docker MCP action for Claude Code.
 
-    This is optional and currently targets Claude Code only. A negative/default
-    answer skips the integration and continues the normal install.
+    Actions: install, copy-local, copy-wsl, skip.
+    The copy actions print the exact command and try to place it on the OS clipboard.
     """
     if getattr(args, "skip_claude_code_docker_mcp", False):
-        return False
+        return "skip"
     if getattr(args, "install_claude_code_docker_mcp", False):
-        return True
+        return "install"
+    if getattr(args, "copy_claude_code_docker_mcp_command", False):
+        return "copy-local"
+    if getattr(args, "copy_claude_code_docker_mcp_wsl_command", False):
+        return "copy-wsl"
     if getattr(args, "non_interactive", False) or getattr(args, "yes", False):
-        return False
-    answer = input("Install Docker MCP server for Claude Code now? [y/N]: ")
-    return is_yes(answer)
+        return "skip"
+
+    info("Optional Claude Code Docker MCP setup:")
+    info("  i = install automatically on this machine")
+    info("  c = copy/print manual command for this machine")
+    info("  w = copy/print command for Windows Claude Code + Docker in WSL")
+    info("  n = skip")
+    answer = input("Choose Docker MCP setup for Claude Code [i/c/w/N]: ").strip().lower()
+    if answer in {"i", "install", "y", "yes", "s", "sim"}:
+        return "install"
+    if answer in {"c", "copy", "print", "manual"}:
+        return "copy-local"
+    if answer in {"w", "wsl", "windows"}:
+        return "copy-wsl"
+    return "skip"
+
+
+def print_or_copy_claude_code_docker_mcp_command(wsl: bool = False) -> None:
+    cmd = MCP_WSL_COMMAND if wsl else MCP_LOCAL_COMMAND
+    text = command_to_text(cmd)
+    if wsl:
+        info("Manual command for Claude Code running on Windows while Docker/uvx runs inside the default WSL distro:")
+    else:
+        info("Manual command for Claude Code running on the same machine as Docker/uvx:")
+    info("")
+    info(text)
+    info("")
+    copied = copy_to_clipboard(text)
+    if copied:
+        ok("Command copied to clipboard")
+    else:
+        warn("Could not access a clipboard command here. Copy the command above manually.")
+    if wsl:
+        info("If your Docker WSL distro is not the default, use this shape and replace Ubuntu with your distro name:")
+        info(command_to_text(MCP_WSL_DISTRO_EXAMPLE_COMMAND))
 
 
 def install_claude_code_docker_mcp(args: argparse.Namespace) -> None:
     if not command_exists("claude"):
-        raise CliError("Claude Code CLI was not found on PATH. Install Claude Code first, then rerun with --install-claude-code-docker-mcp.")
+        raise CliError("Claude Code CLI was not found on PATH. Install Claude Code first, then rerun with --install-claude-code-docker-mcp or copy the command manually.")
     if not command_exists("uvx"):
-        raise CliError("uvx was not found on PATH. Reopen your shell after uv install, then rerun with --install-claude-code-docker-mcp.")
+        raise CliError("uvx was not found on PATH. Reopen your shell after uv install, then rerun with --install-claude-code-docker-mcp or copy the WSL command if Docker runs there.")
     info("🔌 Installing Docker MCP server for Claude Code...")
-    cmd = ["claude", "mcp", "add", "docker-mcp", "-s", "user", "--", "uvx", "docker-mcp"]
-    rc = stream(cmd, check=False)
+    rc = stream(MCP_LOCAL_COMMAND, check=False)
     if rc != 0:
-        raise CliError("Claude Code Docker MCP installation failed. Command: claude mcp add docker-mcp -s user -- uvx docker-mcp")
+        raise CliError(f"Claude Code Docker MCP installation failed. Command: {command_to_text(MCP_LOCAL_COMMAND)}")
     ok("Claude Code Docker MCP configured as docker-mcp")
 
 
 def maybe_install_claude_code_docker_mcp(args: argparse.Namespace) -> None:
-    if wants_claude_code_docker_mcp(args):
+    action = choose_claude_code_docker_mcp_action(args)
+    if action == "install":
         install_claude_code_docker_mcp(args)
+    elif action == "copy-local":
+        print_or_copy_claude_code_docker_mcp_command(wsl=False)
+    elif action == "copy-wsl":
+        print_or_copy_claude_code_docker_mcp_command(wsl=True)
     else:
         ok("Claude Code Docker MCP skipped")
 
@@ -562,6 +648,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra-args", default=None, help="Extra args passed to tailscale up via TS_EXTRA_ARGS.")
     p.add_argument("--yes", action="store_true", help="Automatically answer yes to prerequisite install/start prompts.")
     p.add_argument("--install-claude-code-docker-mcp", action="store_true", help="Install the docker-mcp server into Claude Code as docker-mcp.")
+    p.add_argument("--copy-claude-code-docker-mcp-command", action="store_true", help="Print/copy the manual Claude Code Docker MCP command for this machine.")
+    p.add_argument("--copy-claude-code-docker-mcp-wsl-command", action="store_true", help="Print/copy the manual command for Windows Claude Code with Docker/uvx in WSL.")
     p.add_argument("--skip-claude-code-docker-mcp", action="store_true", help="Skip the optional Claude Code Docker MCP prompt.")
     p.add_argument("--force", action="store_true", help="Overwrite generated compose/config helper files.")
     p.add_argument("--non-interactive", action="store_true", help="Do not prompt; require flags/env/defaults.")
@@ -578,6 +666,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra-args", default=None, help=argparse.SUPPRESS)
     p.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--install-claude-code-docker-mcp", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--copy-claude-code-docker-mcp-command", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--copy-claude-code-docker-mcp-wsl-command", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--skip-claude-code-docker-mcp", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--non-interactive", action="store_true", help=argparse.SUPPRESS)
