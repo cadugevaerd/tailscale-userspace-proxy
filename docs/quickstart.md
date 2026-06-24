@@ -1,0 +1,52 @@
+# Quickstart
+
+## 1. Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cadugevaerd/tailscale-userspace-proxy/main/install.py | python3
+```
+
+The installer checks:
+
+```text
+Python >= 3.10
+uv
+Docker
+Docker Compose
+port 1055
+Tailscale auth key
+```
+
+If `uv` is missing, it installs `uv` first.
+
+## 2. Start
+
+```bash
+tailscale-proxy up
+```
+
+## 3. Check status
+
+```bash
+tailscale-proxy status
+```
+
+## 4. Use the proxy
+
+```bash
+export ALL_PROXY=socks5h://127.0.0.1:1055
+export HTTP_PROXY=http://127.0.0.1:1055
+export HTTPS_PROXY=http://127.0.0.1:1055
+```
+
+## 5. Test
+
+```bash
+tailscale-proxy test https://ifconfig.me
+```
+
+Or test a tailnet service:
+
+```bash
+tailscale-proxy test http://server.tailnet.ts.net
+```

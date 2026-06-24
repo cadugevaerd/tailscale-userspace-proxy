@@ -1,0 +1,6 @@
+# Example override for LAN exposure.
+# Prefer SSH tunnel instead of this when possible.
+services:
+  tailscale-proxy:
+    ports:
+      - "0.0.0.0:1055:1055"

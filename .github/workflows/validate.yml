@@ -1,0 +1,24 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Show versions
+        run: |
+          uv --version
+          docker --version
+          docker compose version
+      - name: CLI help
+        run: uv run tailscale-proxy --help
+      - name: Compile Python
+        run: uv run python -m compileall src
+      - name: Validate generated compose
+        run: uv run tailscale-proxy validate --home "$RUNNER_TEMP/tailscale-proxy"

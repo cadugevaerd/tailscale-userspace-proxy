@@ -1,0 +1,28 @@
+services:
+  tailscale-proxy:
+    image: ${TAILSCALE_IMAGE:-tailscale/tailscale:stable}
+    container_name: ${CONTAINER_NAME:-tailscale-userspace-proxy}
+    hostname: ${TS_HOSTNAME:-tailscale-userspace-proxy}
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env or run tailscale-proxy install}
+      TS_HOSTNAME: ${TS_HOSTNAME:-tailscale-userspace-proxy}
+      TS_USERSPACE: "true"
+      TS_ACCEPT_DNS: ${TS_ACCEPT_DNS:-true}
+      TS_SOCKS5_SERVER: ${TS_SOCKS5_SERVER:-0.0.0.0:1055}
+      TS_OUTBOUND_HTTP_PROXY_LISTEN: ${TS_OUTBOUND_HTTP_PROXY_LISTEN:-0.0.0.0:1055}
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS:-}
+      TS_STATE_DIR: ${TS_STATE_DIR:-/var/lib/tailscale}
+    ports:
+      - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-1055}:1055"
+    volumes:
+      - tailscale-state:${TS_STATE_DIR:-/var/lib/tailscale}
+    healthcheck:
+      test: ["CMD", "tailscale", "status", "--peers=false"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  tailscale-state:
