@@ -284,6 +284,42 @@ def ensure_docker_compose_ready(args: argparse.Namespace) -> None:
     ok("Docker Compose found")
 
 
+def wants_claude_code_docker_mcp(args: argparse.Namespace) -> bool:
+    """Return whether to configure Docker MCP for Claude Code.
+
+    This is optional and currently targets Claude Code only. A negative/default
+    answer skips the integration and continues the normal install.
+    """
+    if getattr(args, "skip_claude_code_docker_mcp", False):
+        return False
+    if getattr(args, "install_claude_code_docker_mcp", False):
+        return True
+    if getattr(args, "non_interactive", False) or getattr(args, "yes", False):
+        return False
+    answer = input("Install Docker MCP server for Claude Code now? [y/N]: ")
+    return is_yes(answer)
+
+
+def install_claude_code_docker_mcp(args: argparse.Namespace) -> None:
+    if not command_exists("claude"):
+        raise CliError("Claude Code CLI was not found on PATH. Install Claude Code first, then rerun with --install-claude-code-docker-mcp.")
+    if not command_exists("uvx"):
+        raise CliError("uvx was not found on PATH. Reopen your shell after uv install, then rerun with --install-claude-code-docker-mcp.")
+    info("🔌 Installing Docker MCP server for Claude Code...")
+    cmd = ["claude", "mcp", "add", "docker-mcp", "-s", "user", "--", "uvx", "docker-mcp"]
+    rc = stream(cmd, check=False)
+    if rc != 0:
+        raise CliError("Claude Code Docker MCP installation failed. Command: claude mcp add docker-mcp -s user -- uvx docker-mcp")
+    ok("Claude Code Docker MCP configured as docker-mcp")
+
+
+def maybe_install_claude_code_docker_mcp(args: argparse.Namespace) -> None:
+    if wants_claude_code_docker_mcp(args):
+        install_claude_code_docker_mcp(args)
+    else:
+        ok("Claude Code Docker MCP skipped")
+
+
 def ensure_port_available(bind_addr: str, port: int) -> bool:
     host = bind_addr if bind_addr not in ("0.0.0.0", "::") else ""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -316,6 +352,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     ensure_uv_ready(args)
     ensure_docker_ready(args)
     ensure_docker_compose_ready(args)
+    maybe_install_claude_code_docker_mcp(args)
 
     ensure_project_files(home, force=args.force)
     current = parse_env_file(env_path(home))
@@ -524,6 +561,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--accept-dns", choices=["true", "false"], default=None, help="Accept Tailscale DNS/MagicDNS.")
     p.add_argument("--extra-args", default=None, help="Extra args passed to tailscale up via TS_EXTRA_ARGS.")
     p.add_argument("--yes", action="store_true", help="Automatically answer yes to prerequisite install/start prompts.")
+    p.add_argument("--install-claude-code-docker-mcp", action="store_true", help="Install the docker-mcp server into Claude Code as docker-mcp.")
+    p.add_argument("--skip-claude-code-docker-mcp", action="store_true", help="Skip the optional Claude Code Docker MCP prompt.")
     p.add_argument("--force", action="store_true", help="Overwrite generated compose/config helper files.")
     p.add_argument("--non-interactive", action="store_true", help="Do not prompt; require flags/env/defaults.")
     p.set_defaults(func=cmd_install)
@@ -538,6 +577,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--accept-dns", choices=["true", "false"], default=None, help=argparse.SUPPRESS)
     p.add_argument("--extra-args", default=None, help=argparse.SUPPRESS)
     p.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--install-claude-code-docker-mcp", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--skip-claude-code-docker-mcp", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--non-interactive", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_up)

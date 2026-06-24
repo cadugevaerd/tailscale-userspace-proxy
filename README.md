@@ -49,6 +49,14 @@ tailscale-proxy up
 
 During setup, every missing prerequisite gets its own prompt. If the user answers `n`, installation is cancelled.
 
+The installer also offers an optional Claude Code integration: if accepted, it registers the Docker MCP server as `docker-mcp` using:
+
+```bash
+claude mcp add docker-mcp -s user -- uvx docker-mcp
+```
+
+This MCP option is currently Claude Code only. It is skipped by default in `--non-interactive` or `--yes` runs; use `--install-claude-code-docker-mcp` to force it.
+
 ## UV install
 
 ```bash

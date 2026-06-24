@@ -14,7 +14,12 @@ from tailscale_proxy import cli  # noqa: E402
 
 
 def args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, Any] = {"yes": False, "non_interactive": False}
+    values: dict[str, Any] = {
+        "yes": False,
+        "non_interactive": False,
+        "install_claude_code_docker_mcp": False,
+        "skip_claude_code_docker_mcp": False,
+    }
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -74,6 +79,45 @@ class PrerequisitePromptTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), "Docker Compose installation cancelled.")
         input_mock.assert_called_once()
         install_mock.assert_not_called()
+
+    def test_claude_code_docker_mcp_negative_answer_skips_without_cancel(self) -> None:
+        with patch("builtins.input", return_value="n") as input_mock:
+            with patch.object(cli, "install_claude_code_docker_mcp") as install_mock:
+                cli.maybe_install_claude_code_docker_mcp(args())
+        input_mock.assert_called_once()
+        install_mock.assert_not_called()
+
+    def test_claude_code_docker_mcp_positive_answer_installs(self) -> None:
+        with patch("builtins.input", return_value="s") as input_mock:
+            with patch.object(cli, "install_claude_code_docker_mcp") as install_mock:
+                cli.maybe_install_claude_code_docker_mcp(args())
+        input_mock.assert_called_once()
+        install_mock.assert_called_once()
+
+    def test_claude_code_docker_mcp_non_interactive_skips_by_default(self) -> None:
+        with patch("builtins.input") as input_mock:
+            with patch.object(cli, "install_claude_code_docker_mcp") as install_mock:
+                cli.maybe_install_claude_code_docker_mcp(args(non_interactive=True))
+        input_mock.assert_not_called()
+        install_mock.assert_not_called()
+
+    def test_claude_code_docker_mcp_explicit_flag_runs_claude_command(self) -> None:
+        def command_exists(name: str) -> bool:
+            return name in {"claude", "uvx"}
+
+        with patch.object(cli, "command_exists", side_effect=command_exists):
+            with patch.object(cli, "stream", return_value=0) as stream_mock:
+                cli.install_claude_code_docker_mcp(args(install_claude_code_docker_mcp=True))
+        stream_mock.assert_called_once_with(
+            ["claude", "mcp", "add", "docker-mcp", "-s", "user", "--", "uvx", "docker-mcp"],
+            check=False,
+        )
+
+    def test_claude_code_docker_mcp_requires_claude_cli(self) -> None:
+        with patch.object(cli, "command_exists", return_value=False):
+            with self.assertRaises(cli.CliError) as caught:
+                cli.install_claude_code_docker_mcp(args(install_claude_code_docker_mcp=True))
+        self.assertIn("Claude Code CLI", str(caught.exception))
 
 
 if __name__ == "__main__":

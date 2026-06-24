@@ -20,6 +20,14 @@ Tailscale auth key
 
 If you answer `n` to any prerequisite prompt, installation is cancelled.
 
+The installer then asks whether to configure Docker MCP for Claude Code. If accepted, it runs:
+
+```bash
+claude mcp add docker-mcp -s user -- uvx docker-mcp
+```
+
+Answering `n` to this optional MCP prompt skips only the Claude Code integration and continues installation.
+
 ## 2. Start
 
 ```bash
